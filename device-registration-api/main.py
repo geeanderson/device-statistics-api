@@ -1,15 +1,15 @@
-  # device-registration-api/main.py
   # Internal API responsible for saving device registrations to the database.
   # Not exposed to external traffic — only the Statistics API calls this service.
 
   from fastapi import FastAPI, HTTPException
   from pydantic import BaseModel
+  import psycopg2
   import os
 
   # ---------------------------------------------------------------------------
   # App initialization
   # ---------------------------------------------------------------------------
-
+  # Create the FastAPI app with metadata shown in the auto-generated /docs page
   app = FastAPI(
       title="Device Registration API",
       description="Internal API for registering devices in the database",
@@ -19,7 +19,7 @@
   # ---------------------------------------------------------------------------
   # Configuration — all values come from environment variables, never hardcoded
   # ---------------------------------------------------------------------------
-
+  # PostgreSQL connection parameters — injected via docker-compose or K8s Secret
   DB_HOST     = os.getenv("DB_HOST", "localhost")
   DB_PORT     = os.getenv("DB_PORT", "5432")
   DB_NAME     = os.getenv("DB_NAME", "devicedb")
@@ -33,13 +33,31 @@
   VALID_DEVICE_TYPES = {"iOS", "Android", "Watch", "TV"}
 
   # ---------------------------------------------------------------------------
-  # Request model
+  # Request model (Pydantic validates incoming JSON automatically)
   # ---------------------------------------------------------------------------
 
   class RegisterRequest(BaseModel):
       """Body expected by POST /Device/register"""
       userKey: str
       deviceType: str
+
+  # ---------------------------------------------------------------------------
+  # Helper: database connection
+  # ---------------------------------------------------------------------------
+
+  def get_db_connection():
+      """
+      Opens a new database connection using the env vars.
+      We open one per request and close it in the finally block
+      to avoid holding idle connections.
+      """
+      return psycopg2.connect(
+          host=DB_HOST,
+          port=DB_PORT,
+          dbname=DB_NAME,
+          user=DB_USER,
+          password=DB_PASSWORD
+      )
 
   # ---------------------------------------------------------------------------
   # Endpoints
@@ -77,4 +95,27 @@
       if not request.userKey or not request.userKey.strip():
           raise HTTPException(status_code=400, detail="userKey cannot be empty")
 
-      return {"statusCode": 200}
+      conn = None
+      try:
+          conn = get_db_connection()
+          cursor = conn.cursor()
+
+          # Parameterized INSERT — %s placeholders prevent SQL injection
+          # created_at is handled by the DEFAULT in the table schema (see init.sql)
+          cursor.execute(
+              "INSERT INTO device_registrations (user_key, device_type) VALUES (%s, %s)",
+              (request.userKey.strip(), request.deviceType)
+          )
+
+          conn.commit()
+
+          return {"statusCode": 200}
+
+      except Exception as e:
+          if conn:
+              conn.rollback()
+          raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+      finally:
+          if conn:
+              conn.close()
