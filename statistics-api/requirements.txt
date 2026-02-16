@@ -1,0 +1,4 @@
+
+# Python dependencies for the Statistics API
+
+fastapi==0.111.0        # Web framework — handles routing, validation, serialization
