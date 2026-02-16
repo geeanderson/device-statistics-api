@@ -2,9 +2,10 @@
   # This service is the entry point for external traffic.
   # It calls the Device Registration API internally to persist data.
 
-  from fastapi import FastAPI, HTTPException
+  from fastapi import FastAPI, HTTPException, Query
   from pydantic import BaseModel
   import httpx
+  import psycopg2
   import os
 
   # ---------------------------------------------------------------------------
@@ -44,6 +45,24 @@
       """Body expected by POST /Log/auth"""
       userKey: str
       deviceType: str
+
+  # ---------------------------------------------------------------------------
+  # Helper: database connection
+  # ---------------------------------------------------------------------------
+
+  def get_db_connection():
+      """
+      Opens a new database connection using the env vars.
+      We open one per request and close it in the finally block
+      to avoid holding idle connections.
+      """
+      return psycopg2.connect(
+          host=DB_HOST,
+          port=DB_PORT,
+          dbname=DB_NAME,
+          user=DB_USER,
+          password=DB_PASSWORD
+      )
 
   # ---------------------------------------------------------------------------
   # Endpoints
@@ -105,3 +124,43 @@
 
       except Exception as e:
           raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+  @app.get("/Log/auth/statistics")
+  def get_statistics(deviceType: str = Query(..., description="Device type to filter by")):
+      """
+      Returns how many times a device type was registered.
+      Expects a deviceType query param (iOS, Android, Watch or TV).
+
+      Returns:
+          200 — {"deviceType": "...", "count": N}
+          400 — invalid device type
+          500 — database error
+      """
+      if deviceType not in VALID_DEVICE_TYPES:
+          raise HTTPException(
+              status_code=400,
+              detail=f"Invalid deviceType '{deviceType}'. "
+                     f"Allowed values: {sorted(VALID_DEVICE_TYPES)}"
+          )
+
+      conn = None
+      try:
+          conn = get_db_connection()
+          cursor = conn.cursor()
+
+          # Parameterized query — %s placeholder prevents SQL injection
+          cursor.execute(
+              "SELECT COUNT(*) FROM device_registrations WHERE device_type = %s",
+              (deviceType,)
+          )
+          count = cursor.fetchone()[0]
+
+          return {"deviceType": deviceType, "count": count}
+
+      except Exception as e:
+          raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+      finally:
+          if conn:
+              conn.close()
