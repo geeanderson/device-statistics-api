@@ -1,0 +1,7 @@
+
+# Python dependencies for the Device Registration API
+
+fastapi==0.111.0        # Web framework — handles routing, validation, serialization
+uvicorn==0.30.1         # ASGI server — runs the FastAPI app
+psycopg2-binary==2.9.9  # PostgreSQL driver — used to insert records into the database
+pydantic==2.7.1         # Data validation — used by FastAPI for request/response models
