@@ -1,3 +1,18 @@
+# ---------------------------------------------------------------------------
+# Configurations to deploy local development environment
+# - postgres                (database, internal only)
+# - device-registration-api (internal API, port 8001, not exposed externally)
+# - statistics-api          (public API, port 8000, exposed on localhost)
+#
+# Usage:
+# cp .env.example .env          # create your local env file
+# docker compose up --build     # build images and start all services
+# docker compose down -v        # stop and remove containers + volumes
+# ---------------------------------------------------------------------------
+
+# --------------------------------------------------------------------------
+# PostgreSQL — persistent storage for device registrations
+# --------------------------------------------------------------------------
 services:
   postgres:
     image: postgres:16-alpine
@@ -15,16 +30,20 @@ services:
       - backend
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
-      interval: 5s 
-      timeout: 5s 
-      retries: 5 
+      interval: 5s  # check every 5 seconds
+      timeout: 5s   # fail the check if it takes longer than 5 seconds
+      retries: 5    # mark as unhealthy after 5 consecutive failures
+
+# --------------------------------------------------------------------------
+# Device Registration API — internal service, NOT exposed externally
+# --------------------------------------------------------------------------
   device-registration-api:
     build:
       context: ./device-registration-api
       dockerfile: Dockerfile
     container_name: device-registration-api
     environment:
-      DB_HOST: postgres
+      DB_HOST: postgres         # refers to the service name above, not localhost
       DB_PORT: ${DB_PORT}
       DB_NAME: ${DB_NAME}
       DB_USER: ${DB_USER}
@@ -32,8 +51,8 @@ services:
     env_file:
       - .env
     networks:
-      - backend
-      - frontend
+      - backend     # shares network with postgres
+      - frontend    # shares network with statistics-api
     depends_on:
       postgres:
         condition: service_healthy
@@ -42,7 +61,11 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-    restart: unless-stopped
+    restart: unless-stopped   # Restart automatically on crash, but not when stopped intentionally
+
+# --------------------------------------------------------------------------
+# Statistics API — public-facing service, exposed on port 8000
+# --------------------------------------------------------------------------
   statistics-api:
     build:
       context: ./statistics-api
@@ -50,7 +73,7 @@ services:
     container_name: statistics-api
 
     environment:
-      DB_HOST: postgres
+      DB_HOST: postgres     # connects directly to postgres for statistics queries
       DB_PORT: ${DB_PORT}
       DB_NAME: ${DB_NAME}
       DB_USER: ${DB_USER}
@@ -61,8 +84,8 @@ services:
     ports:
       - "8000:8000"
     networks:
-      - frontend
-      - backend
+      - frontend    # can reach device-registration-api
+      - backend     # can reach postgres directly (for statistics queries)
     depends_on:
       postgres:
         condition: service_healthy
@@ -70,14 +93,25 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-    restart: unless-stopped
+      interval: 10s   # check every 10 seconds
+      timeout: 5s     # fail the check if it takes longer than 5 seconds
+      retries: 3      # mark as unhealthy after 3 consecutive failures
+    restart: unless-stopped   # Restart automatically on crash, but not when stopped intentionally
+
+# ---------------------------------------------------------------------------
+# Networks
+# frontend: statistics-api <-> device-registration-api
+# backend:  device-registration-api <-> postgres
+# ---------------------------------------------------------------------------
 networks:
   frontend:
     driver: bridge
   backend:
     driver: bridge
+
+# ---------------------------------------------------------------------------
+# Volumes for PostgreSQL data persistence.
+# Data is kept across container restarts and image rebuilds.
+# ---------------------------------------------------------------------------
 volumes:
   postgres_data:
