@@ -33,8 +33,10 @@ COPY main.py .
 
 # ---------------------------------------------------------------------------
 # Security: run as non-root user
+# chown transfers ownership of /app to appuser so the process can read
+# the source files — without this, Python raises PermissionError on startup.
 # ---------------------------------------------------------------------------
-RUN adduser --system --no-create-home appuser
+RUN adduser --system --no-create-home appuser && chown -R appuser /app
 USER appuser
 
 # ---------------------------------------------------------------------------
