@@ -24,7 +24,7 @@ services:
       dockerfile: Dockerfile
     container_name: device-registration-api
     environment:
-      DB_HOST: postgres        
+      DB_HOST: postgres
       DB_PORT: ${DB_PORT}
       DB_NAME: ${DB_NAME}
       DB_USER: ${DB_USER}
@@ -33,11 +33,43 @@ services:
       - .env
     networks:
       - backend
+      - frontend
     depends_on:
       postgres:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+  statistics-api:
+    build:
+      context: ./statistics-api
+      dockerfile: Dockerfile
+    container_name: statistics-api
+
+    environment:
+      DB_HOST: postgres
+      DB_PORT: ${DB_PORT}
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DEVICE_API_URL: http://device-registration-api:8001
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    networks:
+      - frontend
+      - backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      device-registration-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
       interval: 10s
       timeout: 5s
       retries: 3
