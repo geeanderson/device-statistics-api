@@ -1,0 +1,19 @@
+# Copy this file to terraform.tfvars and adjust as needed.
+#
+#   cp terraform.tfvars.example terraform.tfvars
+#
+# terraform.tfvars is already in .gitignore.
+
+region          = "us-east-1"
+cluster_name    = "device-statistics"
+cluster_version = "1.35"
+vpc_cidr        = "10.0.0.0/16"
+instance_type   = "t3.medium"
+
+# System node group — runs Karpenter, LBC, and kube-system pods
+# Application nodes are provisioned dynamically by Karpenter
+system_nodes = {
+  min     = 1
+  desired = 2
+  max     = 3
+}
