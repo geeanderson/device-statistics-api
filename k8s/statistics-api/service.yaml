@@ -1,0 +1,13 @@
+# ClusterIP — the ALB routes directly to pod IPs (target-type: ip), no NodePort needed.
+apiVersion: v1
+kind: Service
+metadata:
+  name: statistics-api
+  namespace: device-statistics
+spec:
+  selector:
+    app: statistics-api
+  ports:
+    - port: 8000
+      targetPort: 8000
+  type: ClusterIP

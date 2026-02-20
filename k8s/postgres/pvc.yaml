@@ -1,0 +1,17 @@
+# Persistent storage for the PostgreSQL data directory.
+# Without this, all data is lost when the pod restarts.
+# StorageClass gp2 provisions an EBS volume in AWS automatically.
+# Requires the aws-ebs-csi-driver addon (configured in terraform/eks.tf).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: device-statistics
+spec:
+  # EBS volumes can only be attached to one node at a time
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: gp2
+  resources:
+    requests:
+      storage: 10Gi

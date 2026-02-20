@@ -1,0 +1,25 @@
+# Only the two application pods can reach the database — everything else is blocked.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres
+  namespace: device-statistics
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: statistics-api
+      ports:
+        - port: 5432
+    - from:
+        - podSelector:
+            matchLabels:
+              app: device-registration-api
+      ports:
+        - port: 5432

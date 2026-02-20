@@ -1,0 +1,31 @@
+# Kustomize manifest — apply everything with: kubectl apply -k k8s/
+#
+# To use your own Docker registry, edit the images section below before applying.
+# Change "geeanderson" to your DockerHub username or registry URL.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - secrets.yaml
+  - configmap.yaml
+  - postgres/pvc.yaml
+  - postgres/deployment.yaml
+  - postgres/service.yaml
+  - postgres/networkpolicy.yaml
+  - device-registration-api/deployment.yaml
+  - device-registration-api/service.yaml
+  - device-registration-api/networkpolicy.yaml
+  - statistics-api/deployment.yaml
+  - statistics-api/service.yaml
+  - statistics-api/ingress.yaml
+  - statistics-api/networkpolicy.yaml
+
+# Override image registry — change "geeanderson" to your registry before applying
+images:
+  - name: geeanderson/statistics-api
+    newName: geeanderson/statistics-api   # ← change this to use your own repository
+    newTag: latest
+  - name: geeanderson/device-registration-api
+    newName: geeanderson/device-registration-api   # ← change this to use your own repository
+    newTag: latest

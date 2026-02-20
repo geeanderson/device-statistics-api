@@ -1,0 +1,28 @@
+# Non-sensitive configuration shared across the application pods.
+# Credentials (DB password, etc.) live in secrets.yaml — never put them here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  namespace: device-statistics
+data:
+  # "postgres" matches the Service name in postgres/service.yaml — K8s DNS resolves it
+  DB_HOST: "postgres"
+  DB_PORT: "5432"
+
+  # "device-registration-api" matches the Service name in device-registration-api/service.yaml
+  DEVICE_API_URL: "http://device-registration-api:8001"
+
+  # Executed by PostgreSQL on first startup via /docker-entrypoint-initdb.d/
+  init.sql: |
+    -- Creates the table that stores all device registration events.
+    CREATE TABLE IF NOT EXISTS device_registrations (
+        id          SERIAL          PRIMARY KEY,
+        user_key    VARCHAR(255)    NOT NULL,
+        device_type VARCHAR(50)     NOT NULL,
+        created_at  TIMESTAMP       DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- Index on device_type — speeds up the COUNT queries in the statistics endpoint.
+    CREATE INDEX IF NOT EXISTS idx_device_registrations_device_type
+        ON device_registrations (device_type);

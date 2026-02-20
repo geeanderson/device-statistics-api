@@ -1,0 +1,6 @@
+# All application resources live in this namespace.
+# Isolating them from kube-system and other cluster components.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: device-statistics

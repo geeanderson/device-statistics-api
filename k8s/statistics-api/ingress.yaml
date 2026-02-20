@@ -1,0 +1,29 @@
+# Internet-facing ALB provisioned by the AWS Load Balancer Controller.
+# ALB DNS appears under ADDRESS after ~2 minutes: kubectl get ingress -n device-statistics
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: statistics-api
+  namespace: device-statistics
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    # target-type ip routes directly to pod IPs — required with Karpenter-provisioned nodes
+    alb.ingress.kubernetes.io/target-type: ip
+    # Default health check path is "/" which returns 404 on this API
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+    # Karpenter nodes end up with two SGs tagged kubernetes.io/cluster/<name>,
+    # which causes the LBC to fail with "expected exactly one securityGroup".
+    # Disabling this and managing the ALB -> node ingress rule manually.
+    alb.ingress.kubernetes.io/manage-backend-security-group-rules: "false"
+spec:
+  ingressClassName: alb
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: statistics-api
+                port:
+                  number: 8000

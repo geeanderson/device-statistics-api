@@ -1,0 +1,19 @@
+# Only the statistics-api can reach this service — all other pods are blocked.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: device-registration-api
+  namespace: device-statistics
+spec:
+  podSelector:
+    matchLabels:
+      app: device-registration-api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: statistics-api
+      ports:
+        - port: 8001

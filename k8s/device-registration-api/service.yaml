@@ -1,0 +1,14 @@
+# ClusterIP — this service is only reachable from within the cluster.
+# No Ingress is created for this API; only the statistics-api is allowed to call it.
+apiVersion: v1
+kind: Service
+metadata:
+  name: device-registration-api
+  namespace: device-statistics
+spec:
+  selector:
+    app: device-registration-api
+  ports:
+    - port: 8001
+      targetPort: 8001
+  type: ClusterIP

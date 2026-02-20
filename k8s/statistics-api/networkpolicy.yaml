@@ -1,0 +1,16 @@
+# Open to all sources — ALB IPs are dynamic and can't be pinned in a NetworkPolicy.
+# The ALB is the actual perimeter here.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: statistics-api
+  namespace: device-statistics
+spec:
+  podSelector:
+    matchLabels:
+      app: statistics-api
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: 8000
