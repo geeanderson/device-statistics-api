@@ -2,6 +2,7 @@
   # Not exposed to external traffic — only the Statistics API calls this service.
 
   from fastapi import FastAPI, HTTPException
+  from fastapi.responses import JSONResponse
   from pydantic import BaseModel
   import psycopg2
   import os
@@ -79,21 +80,22 @@
       never external clients.
 
       Returns:
-          200 — registration successful
-          400 — invalid device type or missing fields
-          500 — database error
+          200 — {"statusCode": 200} registration successful
+          400 — {"statusCode": 400} invalid device type, missing fields, or database error
       """
       # Reject unknown device types
       if request.deviceType not in VALID_DEVICE_TYPES:
-          raise HTTPException(
+          return JSONResponse(
               status_code=400,
-              detail=f"Invalid deviceType '{request.deviceType}'. "
-                     f"Allowed values: {sorted(VALID_DEVICE_TYPES)}"
+              content={"statusCode": 400}
           )
 
       # Reject empty userKey — it's a required business field
       if not request.userKey or not request.userKey.strip():
-          raise HTTPException(status_code=400, detail="userKey cannot be empty")
+          return JSONResponse(
+            status_code=400,
+            content={"statusCode": 400}
+        )
 
       conn = None
       try:
@@ -114,7 +116,10 @@
       except Exception as e:
           if conn:
               conn.rollback()
-          raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+          return JSONResponse(
+            status_code=400,
+            content={"statusCode": 400}
+        )
 
       finally:
           if conn:

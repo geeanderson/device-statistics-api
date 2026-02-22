@@ -3,6 +3,7 @@
   # It calls the Device Registration API internally to persist data.
 
   from fastapi import FastAPI, HTTPException, Query
+  from fastapi.responses import JSONResponse
   from pydantic import BaseModel
   import httpx
   import psycopg2
@@ -89,10 +90,9 @@
           500 — unexpected server error
       """
       if request.deviceType not in VALID_DEVICE_TYPES:
-          raise HTTPException(
+          return JSONResponse(
               status_code=400,
-              detail=f"Invalid deviceType '{request.deviceType}'. "
-                     f"Allowed values: {sorted(VALID_DEVICE_TYPES)}"
+              content={"statusCode": 400, "message": "bad_request"}
           )
 
       try:
@@ -105,25 +105,25 @@
               )
 
           if response.status_code != 200:
-              raise HTTPException(
-                  status_code=response.status_code,
-                  detail="Device Registration API returned an error"
+              return JSONResponse(
+                status_code=400,
+                content={"statusCode": 400, "message": "bad_request"}
               )
 
-          return {"statusCode": 200, "message": "Device registered successfully"}
+          return {"statusCode": 200, "message": "success"}
 
       except httpx.RequestError:
           # Network-level error — the internal service is unreachable
-          raise HTTPException(
-              status_code=502,
-              detail="Could not reach Device Registration API"
+          return JSONResponse(
+            status_code=400,
+            content={"statusCode": 400, "message": "bad_request"}
           )
 
-      except HTTPException:
-          raise
-
       except Exception as e:
-          raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+          return JSONResponse(
+            status_code=400,
+            content={"statusCode": 400, "message": "bad_request"}
+        )
 
 
   @app.get("/Log/auth/statistics")
@@ -133,16 +133,11 @@
       Expects a deviceType query param (iOS, Android, Watch or TV).
 
       Returns:
-          200 — {"deviceType": "...", "count": N}
-          400 — invalid device type
-          500 — database error
+        200 — {"deviceType": "...", "count": N} on success
+        200 — {"deviceType": "...", "count": -1} on error (invalid type or DB error)
       """
       if deviceType not in VALID_DEVICE_TYPES:
-          raise HTTPException(
-              status_code=400,
-              detail=f"Invalid deviceType '{deviceType}'. "
-                     f"Allowed values: {sorted(VALID_DEVICE_TYPES)}"
-          )
+          return {"deviceType": deviceType, "count": -1}
 
       conn = None
       try:
@@ -159,7 +154,7 @@
           return {"deviceType": deviceType, "count": count}
 
       except Exception as e:
-          raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+          return {"deviceType": deviceType, "count": -1}
 
       finally:
           if conn:
