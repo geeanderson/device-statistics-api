@@ -1,0 +1,16 @@
+# Bandit config
+
+[tool.bandit]
+exclude_dirs = [
+    "tests/",
+    ".venv/",
+    "venv/",
+    "__pycache__/"
+]
+
+skips = [
+    "B201",  # Flask debug — not applicable, we use FastAPI
+]
+
+[tool.bandit.assert_used]
+skips = ['*_test.py', 'test_*.py']

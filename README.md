@@ -174,7 +174,7 @@ curl -X POST http://localhost:8000/Log/auth \
 ```
 
 ```json
-{"statusCode": 200, "message": "Device registered successfully"}
+{"statusCode": 200, "message": "success"}
 ```
 
 Run a few more with different device types to have data to query:
@@ -480,7 +480,7 @@ curl -X POST http://$ALB/Log/auth \
 ```
 
 ```json
-{"statusCode": 200, "message": "Device registered successfully"}
+{"statusCode": 200, "message": "success"}
 ```
 
 **Log a few more events:**
@@ -504,7 +504,7 @@ curl -X POST http://$ALB/Log/auth \
 ```
 
 ```json
-{"detail": "Invalid deviceType 'Windows'. Allowed values: ['Android', 'TV', 'Watch', 'iOS']"}
+{"statusCode": 400, "message": "bad_request"}
 ```
 
 **Query statistics:**
@@ -582,12 +582,47 @@ This API is not reachable from outside. In Docker Compose it runs on an internal
 
 ## Security
 
+### Application Security
+
 - No credentials in code — everything goes through environment variables and Kubernetes Secrets
 - SQL queries use parameterized statements (no SQL injection risk)
 - The Device Registration API is not reachable from outside the cluster
 - Containers run as non-root users
 - Kubernetes NetworkPolicies restrict traffic between pods
 - Resource limits set on all deployments
+
+### Security Scanning
+
+We run security scans with Trivy, Bandit, Safety, Hadolint, and Trufflehog to catch CVEs and code issues before they go out.
+
+**Run all scans:**
+
+```bash
+./scripts/security-scan.sh
+```
+
+Only needs Docker. Takes about 30 seconds.
+
+**Tools:**
+
+| Tool | What it checks |
+|------|----------------|
+| **Trivy** | CVEs in dependencies |
+| **Bandit** | Insecure code patterns |
+| **Safety** | Known PyPI vulnerabilities |
+| **Hadolint** | Dockerfile issues |
+| **Trufflehog** | Hardcoded secrets |
+
+**Pre-commit hooks (optional):**
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+Scans run before each commit. Blocks on HIGH/CRITICAL vulns.
+
+**More info:** See [SECURITY.md](SECURITY.md) for setup details, troubleshooting, and CI/CD integration.
 
 ---
 

@@ -1,0 +1,63 @@
+# Pre-commit security hooks
+# Install: pip install pre-commit && pre-commit install
+# Run manually: pre-commit run --all-files
+
+repos:
+  # Check for CVEs in Python dependencies
+  - repo: https://github.com/Lucas-C/pre-commit-hooks-safety
+    rev: v1.3.3
+    hooks:
+      - id: python-safety-dependencies-check
+        name: CVE check (Python deps)
+        files: requirements\.txt$
+
+  # Scan Python code for security issues
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.10
+    hooks:
+      - id: bandit
+        name: SAST scan (Bandit)
+        args: ['-c', 'pyproject.toml']
+        additional_dependencies: ["bandit[toml]"]
+
+  # Prevent committing secrets
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        name: Secret scan
+        args: ['--baseline', '.secrets.baseline']
+        exclude: package.lock.json
+
+  # Lint Dockerfiles
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.12.0
+    hooks:
+      - id: hadolint-docker
+        name: Dockerfile lint
+
+  # Trivy filesystem scan (blocks on HIGH/CRITICAL)
+  - repo: https://github.com/aquasecurity/trivy
+    rev: v0.58.1
+    hooks:
+      - id: trivy-fs
+        name: Trivy CVE scan
+        args:
+          - '--severity'
+          - 'HIGH,CRITICAL'
+          - '--exit-code'
+          - '1'
+          - '.'
+
+  # Basic file hygiene
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: ['--unsafe']
+      - id: check-added-large-files
+        args: ['--maxkb=500']
+      - id: check-merge-conflict
+      - id: mixed-line-ending
