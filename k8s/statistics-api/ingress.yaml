@@ -11,9 +11,8 @@ metadata:
     alb.ingress.kubernetes.io/target-type: ip
     # Default health check path is "/" which returns 404 on this API
     alb.ingress.kubernetes.io/healthcheck-path: /health
-    # Karpenter nodes end up with two SGs tagged kubernetes.io/cluster/<name>,
-    # which causes the LBC to fail with "expected exactly one securityGroup".
-    # Disabling this and managing the ALB -> node ingress rule manually.
+    # AWS LBC expects exactly one SG tagged with kubernetes.io/cluster/<name>,
+    # but EKS module tags both cluster SG and node SG. Disable auto-management.
     alb.ingress.kubernetes.io/manage-backend-security-group-rules: "false"
 spec:
   ingressClassName: alb
