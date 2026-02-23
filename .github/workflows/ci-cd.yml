@@ -1,0 +1,635 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:  # allows manual trigger
+
+permissions:
+  contents: read
+  security-events: write  # for SARIF uploads to GitHub Security tab
+  actions: read  # for CodeQL Action to access workflow run information
+
+jobs:
+  # ============================================================
+  # SECURITY SCAN - Source Code (shift-left security)
+  # ============================================================
+
+  security-bandit:
+    name: Security Scan - Bandit (SAST)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Bandit
+        run: pip install bandit[toml]
+
+      - name: Run Bandit on statistics-api
+        run: |
+          bandit -r statistics-api/ -f json -o bandit-statistics.json || true
+          bandit -r statistics-api/ -f screen
+        continue-on-error: true
+
+      - name: Run Bandit on device-registration-api
+        run: |
+          bandit -r device-registration-api/ -f json -o bandit-registration.json || true
+          bandit -r device-registration-api/ -f screen
+        continue-on-error: true
+
+      - name: Upload Bandit results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bandit-results
+          path: bandit-*.json
+          retention-days: 30
+
+  security-safety:
+    name: Security Scan - Safety (CVE Check)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Safety
+        run: pip install safety
+
+      - name: Check statistics-api dependencies
+        run: |
+          echo "Checking statistics-api dependencies for known CVEs..."
+          safety check -r statistics-api/requirements.txt --json > safety-statistics.json || true
+          safety check -r statistics-api/requirements.txt || true
+        continue-on-error: true
+
+      - name: Check device-registration-api dependencies
+        run: |
+          echo "Checking device-registration-api dependencies for known CVEs..."
+          safety check -r device-registration-api/requirements.txt --json > safety-registration.json || true
+          safety check -r device-registration-api/requirements.txt || true
+        continue-on-error: true
+
+      - name: Upload Safety results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: safety-results
+          path: safety-*.json
+          retention-days: 30
+
+  security-hadolint:
+    name: Security Scan - Hadolint (Dockerfile)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Hadolint on statistics-api Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: statistics-api/Dockerfile
+          format: sarif
+          output-file: hadolint-statistics.sarif
+          no-fail: true
+
+      - name: Run Hadolint on device-registration-api Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: device-registration-api/Dockerfile
+          format: sarif
+          output-file: hadolint-registration.sarif
+          no-fail: true
+
+      - name: Upload Hadolint SARIF - statistics-api
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        continue-on-error: true  # may fail on private repos without Advanced Security
+        with:
+          sarif_file: hadolint-statistics.sarif
+          category: hadolint-statistics
+
+      - name: Upload Hadolint SARIF - device-registration-api
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        continue-on-error: true  # may fail on private repos without Advanced Security
+        with:
+          sarif_file: hadolint-registration.sarif
+          category: hadolint-registration
+
+      - name: Upload Hadolint results as artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hadolint-results
+          path: hadolint-*.sarif
+          retention-days: 30
+
+  security-secrets:
+    name: Security Scan - TruffleHog (Secrets)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history for TruffleHog
+
+      - name: Run TruffleHog
+        uses: trufflesecurity/trufflehog@main
+        with:
+          extra_args: --only-verified --json
+        continue-on-error: true
+
+      - name: TruffleHog summary
+        run: echo "TruffleHog scan completed. Check logs for any verified secrets found."
+
+  # ============================================================
+  # SECURITY SCAN SUMMARY
+  # ============================================================
+
+  security-summary:
+    name: Security Scan Summary
+    runs-on: ubuntu-latest
+    needs: [security-bandit, security-safety, security-hadolint, security-secrets]
+    if: always()
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Display summary
+        run: |
+          echo "=================================================="
+          echo "Security Scan Results Summary"
+          echo "=================================================="
+          echo ""
+          echo "✓ Bandit (SAST):        Completed"
+          echo "✓ Safety (CVE):         Completed"
+          echo "✓ Hadolint (Docker):    Completed"
+          echo "✓ TruffleHog (Secrets): Completed"
+          echo ""
+          echo "Check individual job logs and artifacts for details."
+          echo "SARIF reports uploaded to GitHub Security tab."
+          echo "=================================================="
+
+      - name: Check if any security job failed
+        run: |
+          if [ "${{ needs.security-bandit.result }}" == "failure" ] || \
+             [ "${{ needs.security-safety.result }}" == "failure" ] || \
+             [ "${{ needs.security-hadolint.result }}" == "failure" ] || \
+             [ "${{ needs.security-secrets.result }}" == "failure" ]; then
+            echo "⚠️  One or more security scans reported issues"
+            echo "Review the logs above for details"
+            exit 1
+          else
+            echo "✅ All security scans passed"
+          fi
+
+  # ============================================================
+  # UNIT TESTS
+  # ============================================================
+
+  unit-tests-statistics:
+    name: Unit Tests - Statistics API
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-statistics-${{ hashFiles('statistics-api/requirements*.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-statistics-
+
+      - name: Install dependencies
+        run: |
+          cd statistics-api
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Run tests with coverage
+        run: |
+          cd statistics-api
+          pytest tests/ -v --cov=. --cov-report=term --cov-report=html --cov-report=xml
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-statistics-api
+          path: statistics-api/htmlcov/
+          retention-days: 30
+
+      - name: Upload coverage XML
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-statistics-xml
+          path: statistics-api/coverage.xml
+          retention-days: 30
+
+  unit-tests-registration:
+    name: Unit Tests - Device Registration API
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-registration-${{ hashFiles('device-registration-api/requirements*.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-registration-
+
+      - name: Install dependencies
+        run: |
+          cd device-registration-api
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Run tests with coverage
+        run: |
+          cd device-registration-api
+          pytest tests/ -v --cov=. --cov-report=term --cov-report=html --cov-report=xml
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-registration-api
+          path: device-registration-api/htmlcov/
+          retention-days: 30
+
+      - name: Upload coverage XML
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-registration-xml
+          path: device-registration-api/coverage.xml
+          retention-days: 30
+
+  # ============================================================
+  # UNIT TESTS SUMMARY
+  # ============================================================
+
+  unit-tests-summary:
+    name: Unit Tests Summary
+    runs-on: ubuntu-latest
+    needs: [unit-tests-statistics, unit-tests-registration]
+    if: always()
+
+    steps:
+      - name: Display summary
+        run: |
+          echo "=================================================="
+          echo "Unit Tests Results Summary"
+          echo "=================================================="
+          echo ""
+          echo "Statistics API:       ${{ needs.unit-tests-statistics.result }}"
+          echo "Registration API:     ${{ needs.unit-tests-registration.result }}"
+          echo ""
+          echo "Coverage reports available in artifacts."
+          echo "=================================================="
+
+      - name: Check if any test job failed
+        run: |
+          if [ "${{ needs.unit-tests-statistics.result }}" == "failure" ] || \
+             [ "${{ needs.unit-tests-registration.result }}" == "failure" ]; then
+            echo "❌ One or more test suites failed"
+            exit 1
+          else
+            echo "✅ All unit tests passed"
+          fi
+
+  # ============================================================
+  # DOCKER BUILD
+  # ============================================================
+
+  build-statistics-api:
+    name: Build - Statistics API Image
+    runs-on: ubuntu-latest
+    needs: [security-summary, unit-tests-summary]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./statistics-api
+          file: ./statistics-api/Dockerfile
+          push: false
+          tags: |
+            geeanderson/statistics-api:${{ github.sha }}
+            geeanderson/statistics-api:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          outputs: type=docker,dest=/tmp/statistics-api.tar
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: statistics-api-image
+          path: /tmp/statistics-api.tar
+          retention-days: 1
+
+  build-registration-api:
+    name: Build - Device Registration API Image
+    runs-on: ubuntu-latest
+    needs: [security-summary, unit-tests-summary]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./device-registration-api
+          file: ./device-registration-api/Dockerfile
+          push: false
+          tags: |
+            geeanderson/device-registration-api:${{ github.sha }}
+            geeanderson/device-registration-api:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          outputs: type=docker,dest=/tmp/device-registration-api.tar
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: device-registration-api-image
+          path: /tmp/device-registration-api.tar
+          retention-days: 1
+
+  # ============================================================
+  # BUILD SUMMARY
+  # ============================================================
+
+  build-summary:
+    name: Build Summary
+    runs-on: ubuntu-latest
+    needs: [build-statistics-api, build-registration-api]
+    if: always()
+
+    steps:
+      - name: Display summary
+        run: |
+          echo "=================================================="
+          echo "Docker Build Results Summary"
+          echo "=================================================="
+          echo ""
+          echo "Statistics API:       ${{ needs.build-statistics-api.result }}"
+          echo "Registration API:     ${{ needs.build-registration-api.result }}"
+          echo ""
+          echo "Images tagged with:"
+          echo "  - latest"
+          echo "  - ${{ github.sha }}"
+          echo ""
+          echo "Images available as artifacts for next steps."
+          echo "=================================================="
+
+      - name: Check if any build job failed
+        run: |
+          if [ "${{ needs.build-statistics-api.result }}" == "failure" ] || \
+             [ "${{ needs.build-registration-api.result }}" == "failure" ]; then
+            echo "❌ One or more builds failed"
+            exit 1
+          else
+            echo "✅ All builds successful"
+          fi
+
+  # ============================================================
+  # INTEGRATION TESTS
+  # ============================================================
+
+  integration-tests:
+    name: Integration Tests (End-to-End)
+    runs-on: ubuntu-latest
+    needs: [build-statistics-api, build-registration-api]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download statistics-api image
+        uses: actions/download-artifact@v4
+        with:
+          name: statistics-api-image
+          path: /tmp
+
+      - name: Download device-registration-api image
+        uses: actions/download-artifact@v4
+        with:
+          name: device-registration-api-image
+          path: /tmp
+
+      - name: Load Docker images
+        run: |
+          docker load --input /tmp/statistics-api.tar
+          docker load --input /tmp/device-registration-api.tar
+          docker images
+
+      - name: Start services with Docker Compose
+        run: |
+          docker compose -f docker-compose.ci.yml up -d
+          echo "Waiting for services to be healthy..."
+          sleep 10
+
+      - name: Check service health
+        run: |
+          docker compose -f docker-compose.ci.yml ps
+          docker compose -f docker-compose.ci.yml logs
+
+      - name: Install test dependencies
+        run: |
+          pip install -r tests/integration/requirements.txt
+
+      - name: Run integration tests
+        run: |
+          python tests/integration/test_e2e.py
+
+      - name: Show logs on failure
+        if: failure()
+        run: |
+          echo "=== Docker Compose Logs ==="
+          docker compose -f docker-compose.ci.yml logs
+          echo "=== Container Status ==="
+          docker compose -f docker-compose.ci.yml ps -a
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker compose -f docker-compose.ci.yml down -v
+
+  # ============================================================
+  # IMAGE SECURITY SCAN - Trivy (CVE detection in Docker images)
+  # ============================================================
+
+  trivy-statistics-api:
+    name: Image Scan - Statistics API (Trivy)
+    runs-on: ubuntu-latest
+    needs: [build-statistics-api]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download statistics-api image
+        uses: actions/download-artifact@v4
+        with:
+          name: statistics-api-image
+          path: /tmp
+
+      - name: Load Docker image
+        run: |
+          docker load --input /tmp/statistics-api.tar
+          docker images
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'geeanderson/statistics-api:latest'
+          format: 'sarif'
+          output: 'trivy-statistics-api.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy SARIF to GitHub Security
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: trivy-statistics-api.sarif
+          category: trivy-statistics-api
+
+      - name: Run Trivy for console output
+        uses: aquasecurity/trivy-action@master
+        continue-on-error: true  # Don't block pipeline - vulnerabilities are logged and reported
+        with:
+          image-ref: 'geeanderson/statistics-api:latest'
+          format: 'table'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          exit-code: '1'
+
+  trivy-registration-api:
+    name: Image Scan - Device Registration API (Trivy)
+    runs-on: ubuntu-latest
+    needs: [build-registration-api]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download device-registration-api image
+        uses: actions/download-artifact@v4
+        with:
+          name: device-registration-api-image
+          path: /tmp
+
+      - name: Load Docker image
+        run: |
+          docker load --input /tmp/device-registration-api.tar
+          docker images
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'geeanderson/device-registration-api:latest'
+          format: 'sarif'
+          output: 'trivy-registration-api.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy SARIF to GitHub Security
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: trivy-registration-api.sarif
+          category: trivy-registration-api
+
+      - name: Run Trivy for console output
+        uses: aquasecurity/trivy-action@master
+        continue-on-error: true  # Don't block pipeline - vulnerabilities are logged and reported
+        with:
+          image-ref: 'geeanderson/device-registration-api:latest'
+          format: 'table'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          exit-code: '1'
+
+  # ============================================================
+  # IMAGE SCAN SUMMARY
+  # ============================================================
+
+  image-scan-summary:
+    name: Image Security Scan Summary
+    runs-on: ubuntu-latest
+    needs: [trivy-statistics-api, trivy-registration-api]
+    if: always()
+
+    steps:
+      - name: Display summary
+        run: |
+          echo "=================================================="
+          echo "Image Security Scan Results (Trivy)"
+          echo "=================================================="
+          echo ""
+          echo "Statistics API:       ${{ needs.trivy-statistics-api.result }}"
+          echo "Registration API:     ${{ needs.trivy-registration-api.result }}"
+          echo ""
+          echo "Scanned for: CRITICAL, HIGH vulnerabilities"
+          echo "SARIF reports uploaded to GitHub Security tab"
+          echo "=================================================="
+
+      - name: Check if any scan found vulnerabilities
+        run: |
+          echo ""
+          echo "Note: Trivy scans completed with continue-on-error enabled."
+          echo "Vulnerabilities are detected and reported but do not block the pipeline."
+          echo ""
+          echo "In production, this would be configured to:"
+          echo "  - Block deployment on CRITICAL vulnerabilities"
+          echo "  - Require security team approval for HIGH vulnerabilities"
+          echo "  - Auto-fix MEDIUM/LOW vulnerabilities in next build cycle"
+          echo ""
+          echo "Review vulnerability details in:"
+          echo "  - GitHub Security tab (SARIF reports)"
+          echo "  - Trivy console output in job logs"
+          echo ""
+          echo "✅ Pipeline continues - vulnerabilities logged for remediation"

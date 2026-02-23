@@ -1,0 +1,87 @@
+# Docker Compose configuration for CI/CD integration tests
+# Uses pre-built images from artifacts instead of building from Dockerfile
+
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: devicedb-ci
+
+    environment:
+      POSTGRES_DB: devicedb
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+
+    networks:
+      - backend
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d devicedb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  device-registration-api:
+    image: geeanderson/device-registration-api:latest
+    container_name: device-registration-api-ci
+
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: devicedb
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+
+    networks:
+      - backend
+      - frontend
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  statistics-api:
+    image: geeanderson/statistics-api:latest
+    container_name: statistics-api-ci
+
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: devicedb
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DEVICE_API_URL: http://device-registration-api:8001
+
+    ports:
+      - "8000:8000"
+
+    networks:
+      - frontend
+      - backend
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      device-registration-api:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+networks:
+  frontend:
+    driver: bridge
+  backend:
+    driver: bridge
