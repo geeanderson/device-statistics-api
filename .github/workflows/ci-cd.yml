@@ -479,6 +479,9 @@ jobs:
           sleep 10
 
       - name: Check service health
+        env:
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
         run: |
           docker compose -f docker-compose.ci.yml ps
           docker compose -f docker-compose.ci.yml logs
@@ -492,6 +495,9 @@ jobs:
           python tests/integration/test_e2e.py
 
       - name: Show logs on failure
+        env:
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
         if: failure()
         run: |
           echo "=== Docker Compose Logs ==="
@@ -500,6 +506,9 @@ jobs:
           docker compose -f docker-compose.ci.yml ps -a
 
       - name: Cleanup
+        env:
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
         if: always()
         run: |
           docker compose -f docker-compose.ci.yml down -v
