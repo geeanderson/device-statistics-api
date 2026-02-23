@@ -470,6 +470,9 @@ jobs:
           docker images
 
       - name: Start services with Docker Compose
+        env:
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
         run: |
           docker compose -f docker-compose.ci.yml up -d
           echo "Waiting for services to be healthy..."
